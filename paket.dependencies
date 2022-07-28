@@ -2,6 +2,7 @@ source https://api.nuget.org/v3/index.json
 framework: net6.0
 storage: none
 
+nuget FSharp.Core ~> 6.0
 nuget Fable.Remoting.Giraffe
 nuget Saturn
 nuget Expecto
@@ -18,6 +19,13 @@ nuget Feliz
 nuget Feliz.Bulma
 nuget Fulma
 
-nuget Fake.Core.Target
-nuget Fake.IO.FileSystem
-nuget Farmer
+group Build
+    source https://api.nuget.org/v3/index.json
+    storage: none
+
+    nuget Fake.Core.ReleaseNotes
+    nuget Fake.Core.Target
+    nuget Fake.DotNet.AssemblyInfoFile
+    nuget Fake.DotNet.Cli
+    nuget Fake.IO.FileSystem
+    nuget Fake.Tools.Git

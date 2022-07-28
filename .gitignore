@@ -1,19 +1,42 @@
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+
+# Safe
 .fable/
+.fake/
+.vs/
+src/Client/public/js/
+.idea/
+*.orig
+*.DotSettings.user
 *.fs.js
 *.fs.js.map
-.fake/
-.farmer/
-.idea/
-.ionide/
-.vs/
-deploy/
-obj/
-bin/
 output/
+release.cmd
+release.sh
+
+# Application
+deploy
+.env
+AssemblyInfo.fs
+
+# Paket dependency manager
+.paket/
 packages/
 paket-files/
 node_modules/
-release.cmd
-release.sh
-*.orig
-*.DotSettings.user
+
+# Ionide
+.ionide/
+
+# FAKE - F# Make
+.fake/
