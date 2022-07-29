@@ -3,6 +3,12 @@ namespace Shared
 open System
 open ErrorHandling
 
+[<AutoOpen>]
+module Utils =
+    let tee f a =
+        f a
+        a
+
 type Player = {
     Id: Guid
     JoinedAt: DateTime
@@ -53,6 +59,8 @@ type IGameApi = {
     loadPlayer: Guid -> Async<Player option>
     getPlayers: unit -> Async<Player list>
     changeCurrentPlayerName: PlayerAction<string, unit>
+
+    notifyPlayerStatus: PlayerAction<unit, unit>
 
     getChat: DateTime -> Async<ChatMessage list>
     sendChatMessage: PlayerAction<ChatMessage, unit>

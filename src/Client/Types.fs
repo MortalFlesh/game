@@ -13,6 +13,8 @@ type Msg =
 
     | Logout
     | PlayerLoggedOut
+    | NotifyPlayerStatus
+    | PlayerStatusNotified
 
     | ReloadChat of DateTime
     | GotChat of ChatMessage list

@@ -1,5 +1,6 @@
 module Server
 
+open System
 open Fable.Remoting.Server
 open Fable.Remoting.Giraffe
 open Saturn
@@ -10,12 +11,64 @@ open Elmish.Bridge
 open Shared
 open ErrorHandling
 
+// server state is what the server keeps track of
+type ServerState = Nothing
+
+// the server message is what the server reacts to
+// in this case, it reacts to messages from client
+type ServerMsg = ClientMsg of RemoteClientMsg
+
+// The postsHub keeps track of connected clients and has broadcasting logic
+let actionsHub = ServerHub<ServerState, ServerMsg, RemoteServerMsg>().RegisterServer(ClientMsg)
+
+type ServerPlayer =
+    {
+        Player: Player
+        Checked: DateTime
+    }
+    with
+        member this.Id = this.Player.Id
+
+[<RequireQualifiedAccess>]
+module ServerPlayer =
+    let id { Player = { Id = id } } = id
+    let player { Player = player } = player
+
 module Storage =
-    let players: ResizeArray<Player> = ResizeArray()
+    let players: ResizeArray<ServerPlayer> = ResizeArray()
     let chat: ResizeArray<ChatMessage> = ResizeArray()
 
     let addPlayer player = players.Add player
     let addMessage message = chat.Add message
+
+    let checkPlayers = async {
+        try
+            let info players =
+                let now = DateTime.Now
+
+                players
+                |> Seq.toList
+                |> List.map (fun p ->
+                    sprintf "[P:%A] Joined: %A | Idle: %As" p.Player.Name p.Player.JoinedAt (now - p.Checked).Seconds
+                )
+                |> printfn "Currently %A"
+
+            let toRemove =
+                players
+                |> tee info
+                |> Seq.filter (fun player -> player.Checked < DateTime.Now.Subtract(TimeSpan.FromMinutes(1)))
+                |> List.ofSeq
+                |> tee (printfn "Remove: %A")
+
+            let refresh =
+                toRemove
+                |> List.fold (fun acc toRemove -> acc || players.Remove toRemove) false
+
+            if refresh then
+                printfn "[Player left] -> Refresh"
+                actionsHub.BroadcastClient RemoteServerMsg.RefreshPlayers
+        with e -> printfn "Check error: %A" e
+    }
 
 [<RequireQualifiedAccess>]
 module Authorize =
@@ -39,7 +92,7 @@ let gameApi = {
             |> Player.create
             |> Option.defaultValue Player.anonymous
 
-        Storage.addPlayer player
+        Storage.addPlayer { Player = player; Checked = DateTime.Now }
 
         return player
     }
@@ -52,15 +105,22 @@ let gameApi = {
     loadPlayer = fun id -> async {
         return
             Storage.players
-            |> Seq.tryFind (fun player -> player.Id = id)
+            |> Seq.tryFind (ServerPlayer.id >> (=) id)
+            |> Option.map ServerPlayer.player
     }
 
-    getPlayers = fun () -> async { return Storage.players |> List.ofSeq }
+    notifyPlayerStatus = Authorize.authorizeAsync <| fun player () -> async {
+        let i = Storage.players.FindIndex (fun p -> p.Id = player.Id)
+
+        Storage.players[i] <- { player with Checked = DateTime.Now }
+    }
+
+    getPlayers = fun () -> async { return Storage.players |> Seq.map ServerPlayer.player |> List.ofSeq }
 
     changeCurrentPlayerName = Authorize.authorizeAsync <| fun player name -> async {
         let i = Storage.players.FindIndex (fun p -> p.Id = player.Id)
 
-        Storage.players[i] <- { Storage.players[i] with Name = name }
+        Storage.players[i] <- { player with Player = { player.Player with Name = name }}
     }
 
     getChat = fun from -> async {
@@ -72,15 +132,12 @@ let gameApi = {
     sendChatMessage = Authorize.authorize <| fun _ -> Storage.addMessage
 }
 
-// server state is what the server keeps track of
-type ServerState = Nothing
-
-// the server message is what the server reacts to
-// in this case, it reacts to messages from client
-type ServerMsg = ClientMsg of RemoteClientMsg
-
-// The postsHub keeps track of connected clients and has broadcasting logic
-let actionsHub = ServerHub<ServerState, ServerMsg, RemoteServerMsg>().RegisterServer(ClientMsg)
+async {
+    while true do
+        do! Storage.checkPlayers
+        do! Async.Sleep (10 * 1000)
+}
+|> Async.Start
 
 let update (clientDispatch: Dispatch<RemoteServerMsg>) (ClientMsg clientMsg) currentState =
     match clientMsg with
@@ -122,6 +179,7 @@ let app =
     application {
         url "http://*:8085"
         use_router webApp
+        //disable_diagnostics
         memory_cache
         use_static "public"
         app_config Giraffe.useWebSockets

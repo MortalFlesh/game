@@ -110,7 +110,16 @@ let update (msg: Msg) (model: Model) : Model * Cmd<Msg> =
         Cmd.batch [
             Cmd.ofMsg PlayerChanged
             Cmd.OfAsync.perform gameApi.getChat player.JoinedAt GotChat
+            Cmd.ofMsg NotifyPlayerStatus
         ]
+    | { CurrentPlayer = Some id }, NotifyPlayerStatus ->
+        model, Cmd.OfAsync.perform gameApi.notifyPlayerStatus (PlayerAction.request id ()) (fun _ -> PlayerStatusNotified)
+
+    | _, PlayerStatusNotified ->
+        model, Cmd.OfAsync.result (async {
+            do! Async.Sleep (10 * 1000)
+            return NotifyPlayerStatus
+        })
 
     | { CurrentPlayer = Some id }, Logout -> { model with CurrentPlayer = None }, Cmd.OfAsync.perform gameApi.logout id (fun _ -> PlayerLoggedOut)
     | _, PlayerLoggedOut ->
