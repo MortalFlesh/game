@@ -21,6 +21,9 @@ type Model = {
     Players: Player list
     CurrentPlayer: Guid option
     Input: string
+
+    Chat: ChatMessage list
+    ChatMessage: string
 }
 
 [<RequireQualifiedAccess>]
@@ -29,6 +32,8 @@ module Model =
         | { Players = [] } -> None
         | { CurrentPlayer = Some id; Players = players } -> players |> Seq.tryFind (fun p -> p.Id = id)
         | _ -> None
+
+    let playerAction data = currentPlayer >> Option.map (fun { Id = id } -> PlayerAction.request id data)
 
     let storePlayer player =
         SessionStorage.save Key.Player player.Id
@@ -41,6 +46,15 @@ module Model =
             | _ -> None
         | _ -> None
 
+    let clearPlayer () =
+        SessionStorage.delete Key.Player
+
+    let playerName model id =
+        model.Players
+        |> List.tryFind (fun p -> p.Id = id)
+        |> Option.map (fun p -> p.Name)
+        |> Option.defaultValue "*Already gone*"
+
 let gameApi =
     Remoting.createApi ()
     |> Remoting.withRouteBuilder Route.builder
@@ -51,6 +65,9 @@ let init () : Model * Cmd<Msg> =
         Players = []
         CurrentPlayer = None
         Input = ""
+
+        Chat = []
+        ChatMessage = ""
     }
 
     let currentPlayerIdCmd =
@@ -68,31 +85,66 @@ let update (msg: Msg) (model: Model) : Model * Cmd<Msg> =
         { model with Input = "" }, cmd
 
     match model, msg with
-    | _, SetInput value -> { model with Input = value }, Cmd.none
+    | _, SetName value -> { model with Input = value }, Cmd.none
 
     | { CurrentPlayer = None }, ChangeName ->
-        Cmd.OfAsync.perform gameApi.newPlayer model.Input InitGame
+        Cmd.OfAsync.perform gameApi.newPlayer model.Input (Some >> InitGame)
         |> changePlayerName model
 
     | { CurrentPlayer = Some id }, ChangeName ->
-        Cmd.OfAsync.perform gameApi.changeCurrentPlayerName (id, model.Input) (fun _ -> PlayerChanged)
+        Cmd.OfAsync.perform gameApi.changeCurrentPlayerName (PlayerAction.request id model.Input) (fun _ -> PlayerChanged)
         |> changePlayerName model
 
     | _, PlayerChanged ->
         Bridge.Send(RemoteClientMsg.PlayerChanged)
         model, Cmd.none
 
-    | _, InitGame player ->
+    | _, InitGame None ->
+        Model.clearPlayer()
+        model, Cmd.none
+
+    | _, InitGame (Some player) ->
         Model.storePlayer player
 
-        { model with CurrentPlayer = Some player.Id }, Cmd.ofMsg PlayerChanged
+        { model with CurrentPlayer = Some player.Id },
+        Cmd.batch [
+            Cmd.ofMsg PlayerChanged
+            Cmd.OfAsync.perform gameApi.getChat player.JoinedAt GotChat
+        ]
+
+    | { CurrentPlayer = Some id }, Logout -> { model with CurrentPlayer = None }, Cmd.OfAsync.perform gameApi.logout id (fun _ -> PlayerLoggedOut)
+    | _, PlayerLoggedOut ->
+        Bridge.Send(RemoteClientMsg.PlayerLoggedOut)
+        model, Cmd.none
+
     | _, ReloadPlayers -> model, Cmd.OfAsync.perform gameApi.getPlayers () GotPlayers
     | _, GotPlayers players -> { model with Players = players }, Cmd.none
 
+    | _, ReloadChat from -> model, Cmd.OfAsync.perform gameApi.getChat from GotChat
+    | _, GotChat chat -> { model with Chat = model.Chat @ chat |> List.distinct }, Cmd.none
+    | _, SetChatMessage message -> { model with ChatMessage = message }, Cmd.none
+    | { CurrentPlayer = Some id; ChatMessage = message }, SendChatMessage when message |> String.IsNullOrWhiteSpace |> not ->
+        let message = {
+            Author = id
+            Created = DateTime.Now
+            Message = message
+        }
+        model, Cmd.OfAsync.perform gameApi.sendChatMessage (PlayerAction.request id message) (fun _ -> ChatMessageSent message.Created)
+    | _, SendChatMessage _ -> model, Cmd.none
+    | _, ChatMessageSent sentAt ->
+        Bridge.Send(RemoteClientMsg.ChatMessageAdded sentAt)
+        { model with ChatMessage = "" }, Cmd.none
+
+    // WS messages
     | _, ServerMsg RemoteServerMsg.RefreshPlayers -> model, Cmd.ofMsg ReloadPlayers
+    | _, ServerMsg (RemoteServerMsg.RefreshChat from) -> model, Cmd.ofMsg (ReloadChat from)
+
+    // Fallback
+    | _, _ -> model, Cmd.none
 
 open Feliz
 open Feliz.Bulma
+open Fulma
 
 let navBrand =
     Bulma.navbarBrand.div [
@@ -106,14 +158,27 @@ let navBrand =
         ]
     ]
 
-let containerBox (model: Model) (dispatch: Msg -> unit) =
+let playerBox (model: Model) (dispatch: Msg -> unit) =
     let currentPlayer = model |> Model.currentPlayer
 
     Bulma.box [
         match currentPlayer with
         | Some player ->
-            Bulma.content [
-                Html.h1 [ prop.text player.Name ]
+            Bulma.media [
+                Bulma.mediaContent [
+                    Bulma.content [
+                        Html.h1 [ prop.text player.Name ]
+                    ]
+                ]
+                Bulma.mediaRight [
+                    Bulma.control.p [
+                        Bulma.button.a [
+                            color.isDanger
+                            prop.onClick (fun _ -> dispatch Logout)
+                            prop.text "Logout"
+                        ]
+                    ]
+                ]
             ]
         | _ -> ()
 
@@ -126,7 +191,7 @@ let containerBox (model: Model) (dispatch: Msg -> unit) =
                         Bulma.input.text [
                             prop.value model.Input
                             prop.placeholder (currentPlayer <?**> ("Change your name", "Choose your name"))
-                            prop.onChange (fun value -> SetInput value |> dispatch)
+                            prop.onChange (SetName >> dispatch)
                         ]
                     ]
                 ]
@@ -141,14 +206,6 @@ let containerBox (model: Model) (dispatch: Msg -> unit) =
             ]
         ]
         Bulma.content [
-            Bulma.control.p [
-                Bulma.button.a [
-                    color.isPrimary
-                    prop.onClick (fun _ -> dispatch ReloadPlayers)
-                    prop.text "Refresh"
-                ]
-            ]
-
             match model.Players with
             | [] -> Html.h2 [ prop.text "No players yet" ]
             | players ->
@@ -157,6 +214,57 @@ let containerBox (model: Model) (dispatch: Msg -> unit) =
                         Html.li [ prop.text player.Name ]
                 ]
         ]
+    ]
+
+let chatBox (model: Model) (dispatch: Msg -> unit) =
+    let currentPlayer = model |> Model.currentPlayer
+
+    let chatMessageCard (authorName: Guid -> string) (message: ChatMessage) =
+        Bulma.content [
+            Bulma.media [
+                Html.strong [ prop.text (authorName message.Author) ]
+                Bulma.mediaRight [
+                    prop.text (message.Created.ToString("HH:mm:ss yyyy-MM-dd"))
+                ]
+            ]
+            Html.pre [ prop.text message.Message ]
+        ]
+
+    Bulma.box [
+        Bulma.content [
+            match model.Chat with
+            | [] -> Html.h3 [ prop.text "No messages yet" ]
+            | messages ->
+                for message in messages do
+                    chatMessageCard (Model.playerName model) message
+        ]
+
+        match currentPlayer with
+        | Some _ ->
+            Bulma.field.div [
+                field.isGrouped
+                prop.children [
+                    Bulma.control.p [
+                        control.isExpanded
+                        prop.children [
+                            Bulma.input.text [
+                                prop.value model.ChatMessage
+                                prop.placeholder "Message ..."
+                                prop.onChange (SetChatMessage >> dispatch)
+                            ]
+                        ]
+                    ]
+                    Bulma.control.p [
+                        Bulma.button.a [
+                            color.isPrimary
+                            prop.disabled (model.ChatMessage |> String.IsNullOrWhiteSpace)
+                            prop.onClick (fun _ -> dispatch SendChatMessage)
+                            prop.text "Send message"
+                        ]
+                    ]
+                ]
+            ]
+        | _ -> ()
     ]
 
 let view (model: Model) (dispatch: Msg -> unit) =
@@ -184,7 +292,8 @@ let view (model: Model) (dispatch: Msg -> unit) =
                                 text.hasTextCentered
                                 prop.text "game"
                             ]
-                            containerBox model dispatch
+                            playerBox model dispatch
+                            chatBox model dispatch
                         ]
                     ]
                 ]
