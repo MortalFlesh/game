@@ -5,6 +5,7 @@ open ErrorHandling
 
 type Player = {
     Id: Guid
+    JoinedAt: DateTime
     Name: string
 }
 
@@ -12,6 +13,7 @@ type Player = {
 module Player =
     let anonymous = {
         Id = Guid.NewGuid()
+        JoinedAt = DateTime.Now
         Name = "Fox"
     }
 
@@ -20,6 +22,7 @@ module Player =
         | name ->
             Some {
                 Id = Guid.NewGuid()
+                JoinedAt = DateTime.Now
                 Name = name
             }
 
@@ -46,11 +49,12 @@ module Route =
 
 type IGameApi = {
     newPlayer: string -> Async<Player>
-    loadPlayer: Guid -> Async<Player>
+    logout: Guid -> Async<unit>
+    loadPlayer: Guid -> Async<Player option>
     getPlayers: unit -> Async<Player list>
     changeCurrentPlayerName: PlayerAction<string, unit>
 
-    getChat: DateTime option -> Async<ChatMessage list>
+    getChat: DateTime -> Async<ChatMessage list>
     sendChatMessage: PlayerAction<ChatMessage, unit>
 }
 
@@ -58,6 +62,7 @@ type IGameApi = {
 [<RequireQualifiedAccess>]
 type RemoteClientMsg =
     | PlayerChanged
+    | PlayerLoggedOut
     | ChatMessageAdded of DateTime
 
 // Message from the server, telling the client to reload posts
