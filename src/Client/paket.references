@@ -5,6 +5,8 @@ Fable.Elmish.Debugger
 Fable.Elmish.HMR
 Fable.React
 Fable.Remoting.Client
+Fable.Browser.WebStorage
+Thoth.Json
 Feliz
 Feliz.Bulma
 Fulma

@@ -23,7 +23,7 @@ To concurrently run the server and the client components in watch mode use the f
 dotnet run
 ```
 
-Then open `http://localhost:8080` in your browser.
+Then open `http://127.0.0.1:8080` in your browser.
 
 The build project in root directory contains a couple of different build targets. You can specify them after `--` (target name is case-insensitive).
 
@@ -33,7 +33,7 @@ To run concurrently server and client tests in watch mode (you can run this comm
 dotnet run -- RunTests
 ```
 
-Client tests are available under `http://localhost:8081` in your browser and server tests are running in watch mode in console.
+Client tests are available under `http://127.0.0.1:8081` in your browser and server tests are running in watch mode in console.
 
 Finally, there are `Bundle` and `Azure` targets that you can use to package your app and deploy to Azure, respectively:
 

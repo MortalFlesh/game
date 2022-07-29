@@ -13,7 +13,7 @@ let server = testList "Server" [
         let result = Storage.addTodo validTodo
 
         Expect.equal result expectedResult "Result should be ok"
-        Expect.contains Storage.todos validTodo "Storage should contain new todo"
+        Expect.contains Storage.players validTodo "Storage should contain new todo"
 ]
 
 let all =

@@ -7,37 +7,39 @@ open Saturn
 open Shared
 
 module Storage =
-    let todos = ResizeArray()
+    let players = ResizeArray()
 
-    let addTodo (todo: Todo) =
-        if Todo.isValid todo.Description then
-            todos.Add todo
-            Ok()
-        else
-            Error "Invalid todo"
+    let addPlayer player = players.Add player
 
-    do
-        addTodo (Todo.create "Create new SAFE project")
-        |> ignore
+let gameApi = {
+    newPlayer = fun name -> async {
+        let player =
+            name
+            |> Player.create
+            |> Option.defaultValue Player.anonymous
 
-        addTodo (Todo.create "Write your app") |> ignore
-        addTodo (Todo.create "Ship it !!!") |> ignore
+        Storage.addPlayer player
 
-let todosApi =
-    { getTodos = fun () -> async { return Storage.todos |> List.ofSeq }
-      addTodo =
-        fun todo ->
-            async {
-                return
-                    match Storage.addTodo todo with
-                    | Ok () -> todo
-                    | Error e -> failwith e
-            } }
+        return player
+    }
+    loadPlayer = fun id -> async {
+        return
+            Storage.players
+            |> Seq.tryFind (fun player -> player.Id = id)
+            |> Option.defaultValue { Player.anonymous with Id = id }
+    }
+    getPlayers = fun () -> async { return Storage.players |> List.ofSeq }
+    changeCurrentPlayerName = fun (id, name) -> async {
+        let i = Storage.players.FindIndex (fun p -> p.Id = id)
+
+        Storage.players[i] <- { Storage.players[i] with Name = name }
+    }
+}
 
 let webApp =
     Remoting.createApi ()
     |> Remoting.withRouteBuilder Route.builder
-    |> Remoting.fromValue todosApi
+    |> Remoting.fromValue gameApi
     |> Remoting.buildHttpHandler
 
 let app =

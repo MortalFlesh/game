@@ -3,38 +3,84 @@ module Index
 open Elmish
 open Fable.Remoting.Client
 open Shared
+open System
+open Storage
 
-type Model = { Todos: Todo list; Input: string }
+[<AutoOpen>]
+module Utils =
+    let inline (<?=>) o d = o |> Option.defaultValue d
+    let inline (<?**>) o (withSome, withNone) =
+        match o with
+        | Some _ -> withSome
+        | None -> withNone
+
+type Model = {
+    Players: Player list
+    CurrentPlayer: Guid option
+    Input: string
+}
+
+[<RequireQualifiedAccess>]
+module Model =
+    let currentPlayer = function
+        | { Players = [] } -> None
+        | { CurrentPlayer = Some id; Players = players } -> players |> Seq.tryFind (fun p -> p.Id = id)
+        | _ -> None
+
+    let storePlayer player =
+        SessionStorage.save Key.Player player.Id
+
+    let loadPlayer () =
+        match SessionStorage.loadItem Key.Player with
+        | Some loadedId ->
+            match loadedId.Trim '"' |> Guid.TryParse with
+            | true, id -> Some id
+            | _ -> None
+        | _ -> None
 
 type Msg =
-    | GotTodos of Todo list
     | SetInput of string
-    | AddTodo
-    | AddedTodo of Todo
+    | ChangeName
+    | InitGame of Player
+    | ReloadPlayers
+    | GotPlayers of Player list
 
-let todosApi =
+let gameApi =
     Remoting.createApi ()
     |> Remoting.withRouteBuilder Route.builder
-    |> Remoting.buildProxy<ITodosApi>
+    |> Remoting.buildProxy<IGameApi>
 
 let init () : Model * Cmd<Msg> =
-    let model = { Todos = []; Input = "" }
+    let model = {
+        Players = []
+        CurrentPlayer = None
+        Input = ""
+    }
 
-    let cmd = Cmd.OfAsync.perform todosApi.getTodos () GotTodos
+    let currentPlayerIdCmd =
+        match Model.loadPlayer () with
+        | Some id -> Cmd.OfAsync.perform gameApi.loadPlayer id InitGame
+        | _ -> Cmd.none
 
-    model, cmd
+    model, Cmd.batch [
+        Cmd.OfAsync.perform gameApi.getPlayers () GotPlayers
+        currentPlayerIdCmd
+    ]
 
 let update (msg: Msg) (model: Model) : Model * Cmd<Msg> =
     match msg with
-    | GotTodos todos -> { model with Todos = todos }, Cmd.none
     | SetInput value -> { model with Input = value }, Cmd.none
-    | AddTodo ->
-        let todo = Todo.create model.Input
+    | ChangeName ->
+        { model with Input = "" },
+        match model with
+        | { CurrentPlayer = Some id } -> Cmd.OfAsync.perform gameApi.changeCurrentPlayerName (id, model.Input) (fun _ -> ReloadPlayers)
+        | _ -> Cmd.OfAsync.perform gameApi.newPlayer model.Input InitGame
+    | InitGame player ->
+        Model.storePlayer player
 
-        let cmd = Cmd.OfAsync.perform todosApi.addTodo todo AddedTodo
-
-        { model with Input = "" }, cmd
-    | AddedTodo todo -> { model with Todos = model.Todos @ [ todo ] }, Cmd.none
+        { model with CurrentPlayer = Some player.Id }, Cmd.ofMsg ReloadPlayers
+    | ReloadPlayers -> model, Cmd.OfAsync.perform gameApi.getPlayers () GotPlayers
+    | GotPlayers players -> { model with Players = players }, Cmd.none
 
 open Feliz
 open Feliz.Bulma
@@ -42,25 +88,26 @@ open Feliz.Bulma
 let navBrand =
     Bulma.navbarBrand.div [
         Bulma.navbarItem.a [
-            prop.href "https://safe-stack.github.io/"
             navbarItem.isActive
             prop.children [
-                Html.img [
-                    prop.src "/favicon.png"
-                    prop.alt "Logo"
+                Html.h1 [
+                    prop.text "A Game"
                 ]
             ]
         ]
     ]
 
 let containerBox (model: Model) (dispatch: Msg -> unit) =
+    let currentPlayer = model |> Model.currentPlayer
+
     Bulma.box [
-        Bulma.content [
-            Html.ol [
-                for todo in model.Todos do
-                    Html.li [ prop.text todo.Description ]
+        match currentPlayer with
+        | Some player ->
+            Bulma.content [
+                Html.h1 [ prop.text player.Name ]
             ]
-        ]
+        | _ -> ()
+
         Bulma.field.div [
             field.isGrouped
             prop.children [
@@ -69,20 +116,37 @@ let containerBox (model: Model) (dispatch: Msg -> unit) =
                     prop.children [
                         Bulma.input.text [
                             prop.value model.Input
-                            prop.placeholder "What needs to be done?"
-                            prop.onChange (fun x -> SetInput x |> dispatch)
+                            prop.placeholder (currentPlayer <?**> ("Change your name", "Choose your name"))
+                            prop.onChange (fun value -> SetInput value |> dispatch)
                         ]
                     ]
                 ]
                 Bulma.control.p [
                     Bulma.button.a [
                         color.isPrimary
-                        prop.disabled (Todo.isValid model.Input |> not)
-                        prop.onClick (fun _ -> dispatch AddTodo)
-                        prop.text "Add"
+                        prop.disabled (model.Input |> String.IsNullOrWhiteSpace)
+                        prop.onClick (fun _ -> dispatch ChangeName)
+                        prop.text (currentPlayer <?**> ("Change name", "Join"))
                     ]
                 ]
             ]
+        ]
+        Bulma.content [
+            Bulma.control.p [
+                Bulma.button.a [
+                    color.isPrimary
+                    prop.onClick (fun _ -> dispatch ReloadPlayers)
+                    prop.text "Refresh"
+                ]
+            ]
+
+            match model.Players with
+            | [] -> Html.h2 [ prop.text "No players yet" ]
+            | players ->
+                Html.ol [
+                    for player in players do
+                        Html.li [ prop.text player.Name ]
+                ]
         ]
     ]
 
@@ -104,8 +168,8 @@ let view (model: Model) (dispatch: Msg -> unit) =
             Bulma.heroBody [
                 Bulma.container [
                     Bulma.column [
-                        column.is6
-                        column.isOffset3
+                        column.is8
+                        column.isOffset2
                         prop.children [
                             Bulma.title [
                                 text.hasTextCentered
