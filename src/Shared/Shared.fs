@@ -26,9 +26,21 @@ module Route =
     let builder typeName methodName =
         sprintf "/api/%s/%s" typeName methodName
 
+    let webSocket = "/socket"
+
 type IGameApi = {
     newPlayer: string -> Async<Player>
     loadPlayer: Guid -> Async<Player>
     getPlayers: unit -> Async<Player list>
     changeCurrentPlayerName: Guid * string -> Async<unit>
 }
+
+// Message from the client, telling the server that a new post is added
+[<RequireQualifiedAccess>]
+type RemoteClientMsg =
+    | PlayerChanged
+
+// Message from the server, telling the client to reload posts
+[<RequireQualifiedAccess>]
+type RemoteServerMsg =
+    | RefreshPlayers

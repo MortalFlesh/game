@@ -3,6 +3,9 @@ module Server
 open Fable.Remoting.Server
 open Fable.Remoting.Giraffe
 open Saturn
+open Giraffe
+open Elmish
+open Elmish.Bridge
 
 open Shared
 
@@ -36,11 +39,42 @@ let gameApi = {
     }
 }
 
-let webApp =
+// server state is what the server keeps track of
+type ServerState = Nothing
+
+// the server message is what the server reacts to
+// in this case, it reacts to messages from client
+type ServerMsg = ClientMsg of RemoteClientMsg
+
+// The postsHub keeps track of connected clients and has broadcasting logic
+let postsHub = ServerHub<ServerState, ServerMsg, RemoteServerMsg>().RegisterServer(ClientMsg)
+
+let update (clientDispatch: Dispatch<RemoteServerMsg>) (ClientMsg clientMsg) currentState =
+    match clientMsg with
+    | RemoteClientMsg.PlayerChanged ->
+        postsHub.BroadcastClient RemoteServerMsg.RefreshPlayers
+        currentState, Cmd.none
+
+let init (clientDispatch: Dispatch<RemoteServerMsg>) () = Nothing, Cmd.none
+
+let socketServer =
+    Bridge.mkServer Route.webSocket init update
+    |> Bridge.withConsoleTrace
+    |> Bridge.withServerHub postsHub
+    |> Bridge.register ClientMsg
+    |> Bridge.run Giraffe.server
+
+let apiRouter =
     Remoting.createApi ()
     |> Remoting.withRouteBuilder Route.builder
     |> Remoting.fromValue gameApi
     |> Remoting.buildHttpHandler
+
+let webApp =
+    choose [
+        socketServer
+        apiRouter
+    ]
 
 let app =
     application {
@@ -48,6 +82,7 @@ let app =
         use_router webApp
         memory_cache
         use_static "public"
+        app_config Giraffe.useWebSockets
         use_gzip
     }
 

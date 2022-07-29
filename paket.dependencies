@@ -7,6 +7,9 @@ nuget Fable.Remoting.Giraffe
 nuget Saturn
 nuget Expecto
 
+nuget Elmish.Bridge.Client
+nuget Elmish.Bridge.Giraffe
+
 nuget Fable.Core
 nuget Fable.Elmish
 nuget Fable.Elmish.React

@@ -1,9 +1,12 @@
 module Index
 
-open Elmish
-open Fable.Remoting.Client
-open Shared
 open System
+open Elmish
+open Elmish.Bridge
+open Fable.Remoting.Client
+
+open Shared
+open Types
 open Storage
 
 [<AutoOpen>]
@@ -38,13 +41,6 @@ module Model =
             | _ -> None
         | _ -> None
 
-type Msg =
-    | SetInput of string
-    | ChangeName
-    | InitGame of Player
-    | ReloadPlayers
-    | GotPlayers of Player list
-
 let gameApi =
     Remoting.createApi ()
     |> Remoting.withRouteBuilder Route.builder
@@ -68,19 +64,32 @@ let init () : Model * Cmd<Msg> =
     ]
 
 let update (msg: Msg) (model: Model) : Model * Cmd<Msg> =
-    match msg with
-    | SetInput value -> { model with Input = value }, Cmd.none
-    | ChangeName ->
-        { model with Input = "" },
-        match model with
-        | { CurrentPlayer = Some id } -> Cmd.OfAsync.perform gameApi.changeCurrentPlayerName (id, model.Input) (fun _ -> ReloadPlayers)
-        | _ -> Cmd.OfAsync.perform gameApi.newPlayer model.Input InitGame
-    | InitGame player ->
+    let changePlayerName model cmd =
+        { model with Input = "" }, cmd
+
+    match model, msg with
+    | _, SetInput value -> { model with Input = value }, Cmd.none
+
+    | { CurrentPlayer = None }, ChangeName ->
+        Cmd.OfAsync.perform gameApi.newPlayer model.Input InitGame
+        |> changePlayerName model
+
+    | { CurrentPlayer = Some id }, ChangeName ->
+        Cmd.OfAsync.perform gameApi.changeCurrentPlayerName (id, model.Input) (fun _ -> PlayerChanged)
+        |> changePlayerName model
+
+    | _, PlayerChanged ->
+        Bridge.Send(RemoteClientMsg.PlayerChanged)
+        model, Cmd.none
+
+    | _, InitGame player ->
         Model.storePlayer player
 
-        { model with CurrentPlayer = Some player.Id }, Cmd.ofMsg ReloadPlayers
-    | ReloadPlayers -> model, Cmd.OfAsync.perform gameApi.getPlayers () GotPlayers
-    | GotPlayers players -> { model with Players = players }, Cmd.none
+        { model with CurrentPlayer = Some player.Id }, Cmd.ofMsg PlayerChanged
+    | _, ReloadPlayers -> model, Cmd.OfAsync.perform gameApi.getPlayers () GotPlayers
+    | _, GotPlayers players -> { model with Players = players }, Cmd.none
+
+    | _, ServerMsg RemoteServerMsg.RefreshPlayers -> model, Cmd.ofMsg ReloadPlayers
 
 open Feliz
 open Feliz.Bulma
