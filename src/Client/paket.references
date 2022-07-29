@@ -1,0 +1,14 @@
+Fable.Core
+Fable.Elmish
+Fable.Elmish.React
+Fable.Elmish.Debugger
+Fable.Elmish.HMR
+Fable.React
+Fable.Remoting.Client
+Fable.Browser.WebStorage
+Elmish.Bridge.Client
+Elmish.Bridge.Giraffe
+Thoth.Json
+Feliz
+Feliz.Bulma
+Fulma

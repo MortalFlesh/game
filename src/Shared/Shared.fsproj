@@ -1,0 +1,26 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net6.0</TargetFramework>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="AssemblyInfo.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- ErrorHandling -->
+        <Compile Include="ErrorHandling/Result.fs" />
+        <Compile Include="ErrorHandling/Validation.fs" />
+        <Compile Include="ErrorHandling/Async.fs" />
+        <Compile Include="ErrorHandling/AsyncResult.fs" />
+        <Compile Include="ErrorHandling/Option.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Compile Include="Shared.fs" />
+    </ItemGroup>
+
+    <Import Project="..\..\.paket\Paket.Restore.targets" />
+
+</Project>

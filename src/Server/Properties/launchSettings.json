@@ -1,0 +1,29 @@
+{
+    "iisSettings": {
+        "windowsAuthentication": false,
+        "anonymousAuthentication": true,
+        "iisExpress": {
+            "applicationUrl": "http://127.0.0.1:8085",
+            "sslPort": 44333
+        }
+    },
+    "profiles": {
+        "IIS Express": {
+            "commandName": "IISExpress",
+            "launchBrowser": false,
+            "launchUrl": "http://127.0.0.1:8080",
+            "environmentVariables": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            }
+        },
+        "Server": {
+            "commandName": "Project",
+            "launchBrowser": false,
+            "launchUrl": "http://127.0.0.1:8080",
+            "environmentVariables": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            },
+            "applicationUrl": " http://127.0.0.1:8085"
+        }
+    }
+}
